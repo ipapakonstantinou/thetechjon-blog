@@ -1,0 +1,23 @@
+name: Rebuild thetechjon.com
+
+# A push to this repo means published posts changed. Fire the Vercel deploy
+# hook so thetechjon.com rebuilds and the build-time fetch pulls the new posts
+# onto /posts. The hook URL is a secret (DEPLOY_HOOK), never hardcoded.
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Vercel deploy hook
+        env:
+          DEPLOY_HOOK: ${{ secrets.DEPLOY_HOOK }}
+        run: |
+          if [ -z "$DEPLOY_HOOK" ]; then
+            echo "DEPLOY_HOOK secret is not set" >&2
+            exit 1
+          fi
+          curl -fsS -X POST "$DEPLOY_HOOK"
