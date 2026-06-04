@@ -1,0 +1,76 @@
+---
+title: "Building noteser: five days of shipping"
+slug: "building-noteser-launch-week"
+date: "2026-06-04"
+description: "Five days of focused work on noteser — a browser-based notes app with GitHub sync. What I shipped, the three technical decisions I would make again, and what I learned about iterating quickly on a side project."
+tags: ["building", "noteser"]
+draft: false
+---
+
+noteser is a browser-based notes app I have been building on weekends and evenings. Markdown files, wikilinks, tasks, live preview, two-way sync with a GitHub repo you own. There is no server, no database, no account. Your notes are plain `.md` files in your own repo. If noteser disappears tomorrow, your vault is still there, in git, version-controlled, readable in any editor.
+
+Last week I spent five focused days shipping. This post is about what I built and how I built it. The decisions that paid off, the patterns I keep coming back to, and the technical choices I would make again. A separate post will cover the distribution side.
+
+## Sync safety as the foundation
+
+The sync layer was the first thing I hardened. The premise of noteser is that your notes live in your GitHub repo, which means every save is also a potential commit. That is great for ownership, and dangerous if the merge logic gets sloppy.
+
+Three things landed:
+
+1. Auto-sync with explicit modes. Local edits push in the background, remote edits pull on a cadence, both throttled, both surfaced in the UI so you always know what state you are in. There is also a pull-only mode for catching up without pushing in-flight work, and an explicit Commit and Sync button for the moments you want a clean, named save.
+2. A three-way merge UI. When a remote change conflicts with a local one, the file opens in a side-by-side editor that lines up the two versions with the common ancestor. You pick which side wins per hunk, or write a third version. The same view handles a batch of conflicted files in one tab strip.
+3. A delete safety net. A file rename used to look like a delete plus an add to the merge layer, which made true conflicts dangerous. The safety net catches those cases and routes them through the merge tab instead of silently writing through.
+
+The pattern I keep coming back to with sync code is this: write the test first, then the fix. Sync bugs are subtle and silent. The only way to know a fix actually fixed it is a test that fails before the fix and passes after. There are now 17 end to end sync scenarios that run against a real GitHub test repo on every change to the sync layer. They are slow, they cost a few API calls per run, and they have caught five real regressions this month.
+
+## The plugin platform
+
+The next stretch was the plugin platform. I wanted noteser to be extensible the way Obsidian is extensible, without inheriting the trust-the-author security model that comes with that flexibility.
+
+The model I landed on:
+
+- Plugins run in a Web Worker. No DOM access, no synchronous fetch, no shared state with the host.
+- The host and the worker talk over a typed postMessage protocol.
+- Plugins declare the capabilities they want in their manifest: `commands`, `panels`, `code-block`, `file-save`, `file-open`. The user sees those at install time and approves them explicitly.
+- Plugins reach into the app only through the SDK surface I designed. There is no escape hatch.
+
+Three reference plugins landed alongside the platform. A word counter that registers a panel and watches the active note. A callout renderer that takes a fenced code block tagged `callout` and renders it as a styled box. A markdown-to-PDF export that uses the `file-save` capability and a vendored copy of jsPDF.
+
+The deliberate trade-off here is power for safety. A noteser plugin can do less than an Obsidian plugin can, on purpose. If you ever want a first-party feature that needs broader reach (a git client, a calendar sync, a local-file watcher), the capability list grows and the install prompt asks for that scope. The user is the gate, not the publisher.
+
+## The sidebar refactor
+
+Mid-week I rewrote the sidebar. The old model had a Ribbon for global actions on the far left, then a panel area that could pin one or more panels stacked vertically, then a separate "active unpinned panel" area at the bottom. It worked, but it had two kinds of panel state in two different spots, and the rules for which one rendered where were starting to surprise me.
+
+The replacement is a leaf model, the one Obsidian uses. Every panel that is currently in the sidebar is a tab in a group. Groups stack vertically. Each group has its own mini-strip of tab icons at the top and one active body underneath. The activity bar on the left only shows panels that are not currently in any group. Click one and it adds itself to the focused group. There is no "second kind of panel" anywhere.
+
+The same model applies to the right sidebar (Properties and Backlinks), and you can drag a tab from the left side to the right side or back. The data structure is one array of groups per side, where each group is `{ id, tabs, activeTab, collapsed, height }`. The collapsed and height fields persist across reloads.
+
+The refactor landed in a single feature branch, behind a Vercel preview URL, with a migration that walked existing persisted state forward. A dozen cleanup PRs later it is on the production site.
+
+## Calendar weekly notes and the right-click context
+
+The calendar widget got two upgrades. The first is an ISO week-number column on the left of the day grid. Click on a week number and noteser opens or creates a weekly note for that week using a configurable folder and title format. The second is a right-click context menu on day and week cells: Open, Open in new pane, Copy wikilink, Add to bookmarks, Delete. The same menu wires into a new "Confirm before moving notes to trash" setting that lets you skip the confirmation modal once you trust your aim.
+
+These are small. They are also the kind of thing that compounds. The right-click menu means I can stop hunting through the file tree to delete yesterday's empty daily note. The weekly column means a Sunday review actually starts in noteser instead of a separate doc.
+
+## Three technical decisions I would make again
+
+1. **Worker sandbox plus capability prompts.** Trusted plugins are a single bad dependency away from a vault leak. The worker boundary and the explicit capability grants buy back the trust budget.
+2. **The leaf model for the sidebar.** Two kinds of state for one concept was a footgun. Collapsing them into "every panel is a tab in a group" simplified eight components and the persistence layer along with it.
+3. **GitHub as the cloud.** No server to host, no database to back up, no account to recover. The user owns the repo, the repo is the source of truth, noteser is the editor. The constraint shapes the product: every feature has to be expressible as a sync-friendly change to a markdown file.
+
+## Patterns I keep coming back to
+
+A few things I noticed this week that are not specific to noteser, but I want to write down before I forget them.
+
+- **Stay your own first user.** Most of what shipped this week was something that annoyed me as a user the previous day. The list of "things to fix" stayed short because I was the one feeling each rough edge.
+- **Tests are the safety net that lets you move fast.** I am one developer. I cannot regression test sixteen interacting subsystems by hand on every change. The 2,034 unit tests and 17 end to end sync scenarios are not for quality theater. They are the only way I can refactor the sidebar in the morning and ship to production by evening without breaking anyone's vault.
+- **Migrations cost you twice if you skip them.** Every persisted shape change came with a versioned migration this week. The one time I considered skipping a migration "because no one is using this yet" was the same time I had to walk a friend through clearing their localStorage on a video call last month. Never again.
+- **A staging branch with a unique preview URL is the cheapest debugging tool there is.** Pushing to a branch and getting back a clickable URL within two minutes let me iterate on the sidebar refactor with real feedback in real time. The cycle was: change, push, share URL, get reaction, fix, repeat.
+
+## What is next
+
+The plugin platform needs a small marketplace surface, starting with a vault-folder scan that finds installable manifests inside your own notes. The mobile experience needs polish (drag-to-pin gestures, PWA install flow, perf under iOS watchdog). And I want to make the editor selection visible across more themes, because half of my testers tripped over it this week.
+
+If you want to try noteser, it is at [noteser.app](https://noteser.app). It is free, open source, and runs entirely in your browser against a GitHub repo you control. If you want to follow what I am building next, I am on [LinkedIn](https://www.linkedin.com/in/ioannis-papakonstantinou/).
