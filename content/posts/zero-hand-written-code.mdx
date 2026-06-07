@@ -1,0 +1,67 @@
+---
+title: "Building with zero hand-written code"
+slug: "zero-hand-written-code"
+date: "2026-06-06"
+description: "I shipped noteser, a real product with 2,034 tests, without typing its code. I also do not read every line. What I do instead is move fast and test."
+tags: ["building", "noteser", "ai"]
+draft: false
+---
+
+noteser is a browser-based notes app with GitHub sync. It has 2,034 unit
+tests, 17 end to end sync scenarios, and it runs in production. I did not
+type a line of its code by hand, and I will be honest about the next part:
+I do not read every line of it either.
+
+What I do instead is move fast and test.
+
+I am writing this because people keep asking how. The short version is
+that one person, on the side of a full-time job, can ship a real product
+now. The rest of this post is how I keep that from turning into broken
+software.
+
+## The lever is speed
+
+The thing I am chasing is the speed of the loop. Research, develop, test,
+in one sitting, faster than I could do any one of them by hand a year ago.
+An idea I have in the morning gets built and covered with tests by the
+evening, on a side project I work on around a full-time job. That
+compression is the whole point. It is what makes a real product possible
+on weekends.
+
+So I optimize for the loop, not for reading code. The model types. I aim
+it, I run it, and I check that the result does what I wanted.
+
+## Tests are the bet
+
+I do not review the diff line by line. I would lose the speed that is the
+entire reason this works. Tests are where I spend the trust I am not
+spending on reading.
+
+It matters most where a bug is subtle and silent. A sync merge bug does
+not throw an error. It quietly writes the wrong version of your note, and
+you find out three days later when a paragraph is gone. So the work lands
+on a beta build first. I let it run, I test it there, and I promote it to
+production only once it is stable. Never straight from a change.
+
+The 17 end to end scenarios run against a real GitHub repo and have caught
+five real regressions this month. Not reading every line is a real risk.
+Tests, and a beta I trust before prod, are how I take that risk on purpose.
+
+## Three things I would do again
+
+1. **Optimize the loop, not the typing.** The win is not that the model
+   writes code. It is that research, build, and test collapse into one fast
+   cycle. Protect that cycle.
+2. **Spend the saved time on tests.** The hours I did not spend reading
+   diffs went into the 2,034 tests. That is the only reason one person can
+   move this fast without breaking things.
+3. **Stay the first user.** The model can build anything I describe.
+   Knowing what is worth building, and noticing when it feels wrong, is
+   still mine.
+
+## What is next
+
+Building the thing turned out to be the easy half. I want to write the
+distribution side next. If you want to try noteser, it is at
+[noteser.app](https://noteser.app). It runs entirely in your browser
+against a GitHub repo you control.
